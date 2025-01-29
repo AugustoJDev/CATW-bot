@@ -1,0 +1,31 @@
+{
+  "name": "catw-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for Code Around The World",
+  "main": "src/bot/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AugustoJDev/CATW-bot.git"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "catw",
+    "augustojdev"
+  ],
+  "author": "AugustoJDev",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/AugustoJDev/CATW-bot/issues"
+  },
+  "homepage": "https://github.com/AugustoJDev/CATW-bot#readme",
+  "dependencies": {
+    "@discordjs/rest": "^2.4.2",
+    "colors": "^1.4.0",
+    "discord.js": "^14.17.3",
+    "dotenv": "^16.4.7"
+  }
+}
