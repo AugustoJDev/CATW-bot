@@ -5,6 +5,10 @@ import json
 import re
 from dotenv import load_dotenv
 import os
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+import time
 
 # Load environment variables from .env file
 load_dotenv()
@@ -19,17 +23,38 @@ loader = instaloader.Instaloader()
 USERNAME = os.getenv('INSTAGRAM_USERNAME')
 PASSWORD = os.getenv('INSTAGRAM_PASSWORD')
 
+# Function to open the challenge URL in a browser using Selenium
+def open_challenge_url(url):
+    driver = webdriver.Chrome()  # Ensure chromedriver is in your PATH
+    driver.get(url)
+    print("Please complete the challenge in the browser window that opened.")
+    while True:
+        time.sleep(10)  # Wait for the user to complete the challenge
+        if "checkpoint" not in driver.current_url:
+            break
+    driver.quit()
+
 # Login to Instagram
 try:
     loader.load_session_from_file(USERNAME)
-    print("Debug: Session loaded successfully", file=sys.stderr)
+    print("🚧 Debug: Session loaded successfully", file=sys.stderr)
 except FileNotFoundError:
     try:
         loader.login(USERNAME, PASSWORD)
         loader.save_session_to_file()
-        print("Debug: Logged in and session saved successfully", file=sys.stderr)
+        print("🚧 Debug: Logged in and session saved successfully", file=sys.stderr)
+    except instaloader.exceptions.TwoFactorAuthRequiredException:
+        print("🚧 Debug: Two-factor authentication required. Please complete the challenge.", file=sys.stderr)
+        challenge_url = f"https://www.instagram.com/accounts/login/?next=/challenge/"
+        open_challenge_url(challenge_url)
+        sys.exit(1)
+    except instaloader.exceptions.LoginRequiredException as e:
+        print(f"🚧 Debug: Login failed: {e}", file=sys.stderr)
+        challenge_url = f"https://www.instagram.com{e.url}"
+        open_challenge_url(challenge_url)
+        sys.exit(1)
     except Exception as e:
-        print(f"Debug: Login failed: {e}", file=sys.stderr)
+        print(f"🚧 Debug: Login failed: {e}", file=sys.stderr)
         sys.exit(1)
 
 # Function to identify the type of URL
@@ -48,18 +73,18 @@ def get_instagram_info(url):
     type = identify_type(url)
 
     try:
-        print(f"Debug: Received URL: {url}", file=sys.stderr)
-        print(f"Debug: Identified type: {type}", file=sys.stderr)
+        print(f"🚧 Debug: Received URL: {url}", file=sys.stderr)
+        print(f"🚧 Debug: Identified type: {type}", file=sys.stderr)
         
         if type == "story":
             match = re.search(r'instagram\.com/stories/[^/]+/([^/?]+)', url)
             if not match:
-                print("Debug: No match found for URL", file=sys.stderr)
+                print("🚧 Debug: No match found for URL", file=sys.stderr)
                 return json.dumps({"error": "Invalid URL"})
             
             user = re.search(r'instagram\.com/stories/([^/]+)/', url).group(1)
             story_id = match.group(1)
-            print(f"Debug: Extracted user: {user}, story_id: {story_id}", file=sys.stderr)
+            print(f"🚧 Debug: Extracted user: {user}, story_id: {story_id}", file=sys.stderr)
 
             profile = instaloader.Profile.from_username(loader.context, user)
             for story in loader.get_stories(userids=[profile.userid]):
@@ -77,11 +102,11 @@ def get_instagram_info(url):
         else:
             match = re.search(r'instagram\.com/(?:p|tv|reels|reel)/([^/?]+)', url)
             if not match:
-                print("Debug: No match found for URL", file=sys.stderr)
+                print("🚧 Debug: No match found for URL", file=sys.stderr)
                 return json.dumps({"error": "Invalid URL"})
 
             shortcode = match.group(1)  # Post/reel code
-            print(f"Debug: Extracted shortcode: {shortcode}", file=sys.stderr)
+            print(f"🚧 Debug: Extracted shortcode: {shortcode}", file=sys.stderr)
 
             post = instaloader.Post.from_shortcode(loader.context, shortcode)
 
