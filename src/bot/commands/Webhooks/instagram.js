@@ -1,106 +1,97 @@
-import sys
-import codecs
-import instaloader
-import json
-import re
-from dotenv import load_dotenv
-import os
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+const { basename } = require('node:path');
+const getEmoji = require('../../config/getEmojis');
 
-# Load environment variables from .env file
-load_dotenv()
+// Commands don't need to have their names written here, just set the filename
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName(basename(__filename).replace('.js', ''))
+        .setDescription('Send Instagram post to a specified channel.')
+        .addStringOption(option => 
+            option.setName('url')
+                .setDescription('Post/Storie/Reel URL')
+                .setRequired(true)
+        ),
+    async execute(interaction) {
+        const scriptPath = path.resolve(__dirname, "../../../python/webhooks/instagram.py");
+        const url = interaction.options.getString('url');
+        const loadingEmoji = await getEmoji("loading");
 
-# Set encoding to UTF-8
-sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
+        await interaction.reply({
+            content: `${loadingEmoji} Getting URL informations... URL: \`${url}\``,
+            ephemeral: true
+        });
 
-# Initialize Instaloader
-loader = instaloader.Instaloader()
+        console.log(`Executing script: ${scriptPath} with URL: ${url}`);
 
-# Get Instagram credentials from environment variables
-USERNAME = os.getenv('INSTAGRAM_USERNAME')
-PASSWORD = os.getenv('INSTAGRAM_PASSWORD')
+        const pythonProcess = spawn("python", [scriptPath, url]);
 
-# Login to Instagram
-try:
-    loader.load_session_from_file(USERNAME)
-    print("Debug: Session loaded successfully", file=sys.stderr)
-except FileNotFoundError:
-    try:
-        loader.login(USERNAME, PASSWORD)
-        loader.save_session_to_file()
-        print("Debug: Logged in and session saved successfully", file=sys.stderr)
-    except Exception as e:
-        print(f"Debug: Login failed: {e}", file=sys.stderr)
-        sys.exit(1)
+        let responseData = "";
+        let errorData = "";
 
-# Function to identify the type of URL
-def identify_type(url):
-    if "/p/" in url or "/tv/" in url:  # Post or IGTV
-        return "post"
-    elif "/stories/" in url:  # Stories
-        return "story"
-    elif "/reels/" in url or "/reel/" in url:  # Reels
-        return "reel"
-    else:
-        return "unknown"
+        // Capture the output from the Python script
+        pythonProcess.stdout.on("data", (data) => {
+            console.log(`stdout: ${data}`);
+            responseData += data.toString();
+        });
 
-# Function to extract information from Instagram
-def get_instagram_info(url):
-    type = identify_type(url)
+        // Capture errors from the Python script
+        pythonProcess.stderr.on("data", (data) => {
+            console.error(`stderr: ${data}`);
+            errorData += data.toString();
+        });
 
-    try:
-        print(f"Debug: Received URL: {url}", file=sys.stderr)
-        print(f"Debug: Identified type: {type}", file=sys.stderr)
-        
-        if type == "story":
-            match = re.search(r'instagram\.com/stories/[^/]+/([^/?]+)', url)
-            if not match:
-                print("Debug: No match found for URL", file=sys.stderr)
-                return json.dumps({"error": "Invalid URL"})
-            
-            user = re.search(r'instagram\.com/stories/([^/]+)/', url).group(1)
-            story_id = match.group(1)
-            print(f"Debug: Extracted user: {user}, story_id: {story_id}", file=sys.stderr)
-
-            profile = instaloader.Profile.from_username(loader.context, user)
-            for story in loader.get_stories(userids=[profile.userid]):
-                for item in story.get_items():
-                    if item.mediaid == int(story_id):
-                        data = {
-                            "type": type,
-                            "author": profile.username,
-                            "description": item.caption or "",
-                            "author_image": profile.profile_pic_url or "",
-                            "thumbnail": item.url or ""
-                        }
-                        return json.dumps(data, ensure_ascii=False)
-            return json.dumps({"error": "Story not found"})
-        else:
-            match = re.search(r'instagram\.com/(?:p|tv|reels|reel)/([^/?]+)', url)
-            if not match:
-                print("Debug: No match found for URL", file=sys.stderr)
-                return json.dumps({"error": "Invalid URL"})
-
-            shortcode = match.group(1)  # Post/reel code
-            print(f"Debug: Extracted shortcode: {shortcode}", file=sys.stderr)
-
-            post = instaloader.Post.from_shortcode(loader.context, shortcode)
-
-            data = {
-                "type": type,
-                "author": post.owner_profile.username,
-                "description": post.caption or "",
-                "author_image": post.owner_profile.profile_pic_url or "",
-                "thumbnail": post.url or ""
+        // When the Python script finishes, process the data
+        pythonProcess.on("close", async (code) => {
+            console.log(`Python script finished with code: ${code}`);
+            if (code !== 0) {
+                console.error(`Process ended with the error code: ${code}`);
+                await interaction.editReply({
+                    content: `❌ Error: Process ended with the error code: ${code}`
+                });
+                return;
             }
-            return json.dumps(data, ensure_ascii=False)
-    
-    except Exception as e:
-        return json.dumps({"error": str(e)})
 
-if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        url = sys.argv[1]
-        result = get_instagram_info(url)
-        print(result)
-    else:
-        print(json.dumps({"error": "No URL received"}))
+            if (errorData) {
+                console.error(`Python script error output: ${errorData}`);
+            }
+
+            try {
+                console.log(`Response data: ${responseData.trim()}`);
+                const dados = JSON.parse(responseData.trim());
+                
+                if (dados.error) {
+                    await interaction.editReply({
+                        content: `❌ Error: ${dados.error}`
+                    });
+                    return;
+                }
+
+                let instagramEmbed = new EmbedBuilder()
+                    .setTitle(`Instagram ${dados.type}`)
+                    .setURL(url)
+                    .setDescription(dados.description || "No Description")
+                    .setImage(dados.thumbnail || "")
+                    .setColor("#C13584")
+                    .setFooter({ text: `Author: ${dados.author}` })
+                    .setTimestamp(new Date(dados.taken_at));
+
+                if (dados.video_url) {
+                    instagramEmbed.addFields({ name: "Video URL", value: dados.video_url });
+                }
+
+                await interaction.editReply({
+                    content: `✅ Successfully fetched and posted the Instagram URL: \`${url}\``,
+                    embeds: [instagramEmbed]
+                });
+            } catch (parseError) {
+                console.error("❌ Error interpreting JSON response:", parseError);
+                await interaction.editReply({
+                    content: `❌ Error interpreting JSON response: ${parseError.message}`
+                });
+            }
+        });
+    },
+};

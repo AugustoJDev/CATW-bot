@@ -1,2 +1,5 @@
 .env
 node_modules
+src/python/webhooks/cookies.json
+src/python/webhooks/session.json
+src/python/webhooks/testing.py
